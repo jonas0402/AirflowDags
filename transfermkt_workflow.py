@@ -57,4 +57,3 @@ with DAG(
 
     # Define task dependencies
     run_players_script >> run_transform_script
- 
