@@ -14,23 +14,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Copy DAG files to Raspberry Pi
+      # Step 2: Copy DAGs to Raspberry Pi
       - name: Copy DAGs to Raspberry Pi
-        uses: appleboy/scp-action@master # Use the correct version
+        uses: appleboy/scp-action@master
         with:
-          host: ${{ secrets.RASPBERRY_PI_HOST }} # Add your Raspberry Pi IP to GitHub secrets
-          username: pi                      # Your Raspberry Pi username
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Add the private SSH key to GitHub secrets
-          source: './dags/'                 # Folder containing your DAGs
-          target: '/var/lib/docker/volumes/airflow_dags/_data/' # Target folder in your Raspberry Pi
+          host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP address
+          username: pi                          # Raspberry Pi username
+          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key for authentication
+          source: './dags/'                     # Local folder containing DAGs
+          target: '/var/lib/docker/volumes/airflow_dags/_data/' # Airflow DAGs folder on Raspberry Pi
 
       # Step 3: Restart Airflow services on Raspberry Pi
-      - name: Restart Airflow to pick up new DAGs
-        uses: appleboy/ssh-action@master # Use the correct version
+      - name: Restart Airflow to load new DAGs
+        uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP
-          username: pi                           # Your Raspberry Pi username
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key
+          host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP address
+          username: pi                           # Raspberry Pi username
+          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key for authentication
           script: |
             sudo docker restart airflow_scheduler
             sudo docker restart airflow_webserver
