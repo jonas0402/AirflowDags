@@ -7,11 +7,6 @@ from airflow.hooks.base import BaseHook
 # Fetch AWS credentials from Airflow connection
 aws_conn = BaseHook.get_connection('aws_default')
 
-# Fetch Docker Hub credentials from Airflow connection
-docker_registry_conn = BaseHook.get_connection('docker_registry')
-docker_username = docker_registry_conn.login
-docker_password = docker_registry_conn.password
-
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
@@ -26,13 +21,12 @@ def slack_notify(context, status):
     *Execution Date*: {context['execution_date']}
     *Status*: {status}
     """
-    return SlackWebhookOperator(
+    SlackWebhookOperator(
         task_id=f"slack_notify_{status.lower()}",
-        http_conn_id="slack_webhook",
+        http_conn_id="slack_webhook",  # Ensure this matches your Slack Webhook connection ID
         message=slack_msg,
-        channel="#general",
+        channel="#general",  # Update with your Slack channel
         username="Airflow",
-        dag=context['dag'],
     ).execute(context=context)
 
 with DAG(
@@ -59,13 +53,7 @@ with DAG(
             'AWS_SECRET_ACCESS_KEY': aws_conn.password,
         },
         api_version='auto',
-        docker_conn_id=None,
-        extra_hosts={
-            "auth_config": {
-                "username": docker_username,
-                "password": docker_password,
-            }
-        },
+        docker_conn_id="docker_registry",  # Use the Docker Registry connection
         on_success_callback=lambda context: slack_notify(context, "SUCCESS"),
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
@@ -85,13 +73,7 @@ with DAG(
             'AWS_SECRET_ACCESS_KEY': aws_conn.password,
         },
         api_version='auto',
-        docker_conn_id=None,
-        extra_hosts={
-            "auth_config": {
-                "username": docker_username,
-                "password": docker_password,
-            }
-        },
+        docker_conn_id="docker_registry",  # Use the Docker Registry connection
         on_success_callback=lambda context: slack_notify(context, "SUCCESS"),
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
