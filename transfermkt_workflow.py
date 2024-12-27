@@ -29,6 +29,13 @@ def slack_notify(context, status):
         username="Airflow",
     ).execute(context=context)
 
+def on_failure_callback(context):
+    """Custom callback for task failure."""
+    task_instance = context['task_instance']
+    exit_code = task_instance.xcom_pull(key='return_value', task_ids=task_instance.task_id)
+    print(f"Task failed with exit code: {exit_code}")
+    send_slack_notification(context, "FAILURE")    
+
 with DAG(
     'transfermkt_workflow',
     default_args=default_args,
