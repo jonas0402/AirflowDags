@@ -1,32 +1,36 @@
-name: Deploy Airflow DAGs to Raspberry Pi
+name: Deploy Airflow DAGs
 
 on:
   push:
     branches:
-      - main
+      - main  # Trigger on pushes to the main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+      # Step 1: Check out the repository
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # Step 2: Copy DAG files to Raspberry Pi
       - name: Copy DAGs to Raspberry Pi
-        uses: appleboy/scp-action@v0.1.8
+        uses: appleboy/scp-action@v0.1.8 # Use a stable version
         with:
-          host: <raspberry-pi-ip>
-          username: pi
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }}
-          source: './'
-          target: '/var/lib/docker/volumes/airflow_dags/_data/'
+          host: ${{ secrets.RASPBERRY_PI_HOST }} # Add your Raspberry Pi IP to GitHub secrets
+          username: pi                      # Your Raspberry Pi username
+          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Add the private SSH key to GitHub secrets
+          source: './dags/'                 # Folder containing your DAGs
+          target: '/var/lib/docker/volumes/airflow_dags/_data/' # Target folder in your Raspberry Pi
 
+      # Step 3: Restart Airflow services on Raspberry Pi
       - name: Restart Airflow to pick up new DAGs
-        uses: appleboy/ssh-action@v0.1.8
+        uses: appleboy/ssh-action@v0.1.8 # Use a stable version
         with:
-          host: <raspberry-pi-ip>
-          username: pi
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }}
+          host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP
+          username: pi                           # Your Raspberry Pi username
+          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key
           script: |
             sudo docker restart airflow_scheduler
             sudo docker restart airflow_webserver
