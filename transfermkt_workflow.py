@@ -47,7 +47,7 @@ with DAG(
     # Task 1: Run transfer_mkt_players.py
     run_players_script = DockerOperator(
         task_id='run_players_script',
-        image='transfermkt_app:latest',
+        image='jonasandata/transfermkt_app:latest',
         command="python /app/transfer_mkt_players.py",
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
@@ -73,7 +73,7 @@ with DAG(
     # Task 2: Run transfer_mkt_transform.py
     run_transform_script = DockerOperator(
         task_id='run_transform_script',
-        image='transfermkt_app:latest',
+        image='jonasandata/transfermkt_app:latest',
         command="python /app/transfer_mkt_transform.py",
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
