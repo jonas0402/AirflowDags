@@ -21,16 +21,16 @@ jobs:
           host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP address
           username: pi                          # Raspberry Pi username
           key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key for authentication
-          source: './dags/'                     # Local folder containing DAGs
+          source: './'                     # Local folder containing DAGs
           target: '/var/lib/docker/volumes/airflow_dags/_data/' # Airflow DAGs folder on Raspberry Pi
 
       # Step 3: Restart Airflow services on Raspberry Pi
-      - name: Restart Airflow to load new DAGs
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP address
-          username: pi                           # Raspberry Pi username
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key for authentication
-          script: |
-            sudo docker restart airflow_scheduler
-            sudo docker restart airflow_webserver
+      # - name: Restart Airflow to load new DAGs
+      #   uses: appleboy/ssh-action@master
+      #   with:
+      #     host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP address
+      #     username: pi                           # Raspberry Pi username
+      #     key: ${{ secrets.RASPBERRY_PI_SSH_KEY }} # Private SSH key for authentication
+      #     script: |
+      #       sudo docker restart airflow_scheduler
+      #       sudo docker restart airflow_webserver
