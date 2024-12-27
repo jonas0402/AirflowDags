@@ -16,7 +16,7 @@ jobs:
 
       # Step 2: Copy DAG files to Raspberry Pi
       - name: Copy DAGs to Raspberry Pi
-        uses: appleboy/scp-action@v0.1.8 # Use a stable version
+        uses: appleboy/scp-action@master # Use the correct version
         with:
           host: ${{ secrets.RASPBERRY_PI_HOST }} # Add your Raspberry Pi IP to GitHub secrets
           username: pi                      # Your Raspberry Pi username
@@ -26,7 +26,7 @@ jobs:
 
       # Step 3: Restart Airflow services on Raspberry Pi
       - name: Restart Airflow to pick up new DAGs
-        uses: appleboy/ssh-action@v0.1.8 # Use a stable version
+        uses: appleboy/ssh-action@master # Use the correct version
         with:
           host: ${{ secrets.RASPBERRY_PI_HOST }} # Raspberry Pi IP
           username: pi                           # Your Raspberry Pi username
