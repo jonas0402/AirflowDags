@@ -14,18 +14,43 @@ default_args = {
 }
 
 def slack_notify(context, status):
-    """Send Slack notifications for task status."""
+    """Send Slack notifications for task status with additional details."""
+    ti = context.get("task_instance")
+    dag = context.get("dag")
+    execution_date = context.get("execution_date")
+    
+    # Calculate duration if possible
+    duration = "N/A"
+    if ti and ti.start_date and ti.end_date:
+        duration_seconds = (ti.end_date - ti.start_date).total_seconds()
+        duration = f"{duration_seconds:.1f} seconds"
+    
+    # Get log URL if available
+    log_url = ti.log_url if ti else "N/A"
+    
+    # Get try number
+    try_number = ti.try_number if ti else "N/A"
+    
+    # Capture exception message if available (for failures)
+    exception_msg = context.get("exception", "")
+    
     slack_msg = f"""
-    *DAG*: {context['dag'].dag_id}
-    *Task*: {context['task_instance'].task_id}
-    *Execution Date*: {context['execution_date']}
-    *Status*: {status}
-    """
+*DAG:* {dag.dag_id if dag else 'N/A'}
+*Task:* {ti.task_id if ti else 'N/A'}
+*Execution Date:* {execution_date}
+*Status:* {status}
+*Try Number:* {try_number}
+*Duration:* {duration}
+*Log URL:* {log_url}
+"""
+    if status == "FAILURE" and exception_msg:
+        slack_msg += f"\n*Exception:* {exception_msg}"
+    
     SlackWebhookOperator(
         task_id=f"slack_notify_{status.lower()}",
         http_conn_id="slack_webhook",  # Ensure this matches your Slack Webhook connection ID
         message=slack_msg,
-        channel="#general",  # Update with your Slack channel
+        channel="#general",  # Update with your Slack channel if needed
         username="Airflow",
     ).execute(context=context)
 
