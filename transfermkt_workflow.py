@@ -29,13 +29,6 @@ def slack_notify(context, status):
         username="Airflow",
     ).execute(context=context)
 
-def on_failure_callback(context):
-    """Custom callback for task failure."""
-    task_instance = context['task_instance']
-    exit_code = task_instance.xcom_pull(key='return_value', task_ids=task_instance.task_id)
-    print(f"Task failed with exit code: {exit_code}")
-    send_slack_notification(context, "FAILURE")    
-
 with DAG(
     'transfermkt_workflow',
     default_args=default_args,
@@ -53,14 +46,14 @@ with DAG(
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
         auto_remove=True,
-        mount_tmp_dir=False,  # Prevent temporary directory mount warnings
+        mount_tmp_dir=False,
         force_pull=True,
         environment={
             'AWS_ACCESS_KEY_ID': aws_conn.login,
             'AWS_SECRET_ACCESS_KEY': aws_conn.password,
         },
         api_version='auto',
-        docker_conn_id="docker_registry",  # Use the Docker Registry connection
+        docker_conn_id="docker_registry",
         on_success_callback=lambda context: slack_notify(context, "SUCCESS"),
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
@@ -73,17 +66,37 @@ with DAG(
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
         auto_remove=True,
-        mount_tmp_dir=False,  # Prevent temporary directory mount warnings
+        mount_tmp_dir=False,
         force_pull=True,
         environment={
             'AWS_ACCESS_KEY_ID': aws_conn.login,
             'AWS_SECRET_ACCESS_KEY': aws_conn.password,
         },
         api_version='auto',
-        docker_conn_id="docker_registry",  # Use the Docker Registry connection
+        docker_conn_id="docker_registry",
         on_success_callback=lambda context: slack_notify(context, "SUCCESS"),
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Define task dependencies
-    run_players_script >> run_transform_script
+    # Task 3: Run transfer_mkt_loader.py
+    run_loader_script = DockerOperator(
+        task_id='run_loader_script',
+        image='jonasandata/transfermkt_app:latest',
+        command="python /app/transfer_mkt_loader.py",
+        docker_url='unix://var/run/docker.sock',
+        network_mode='bridge',
+        auto_remove=True,
+        mount_tmp_dir=False,
+        force_pull=True,
+        environment={
+            'AWS_ACCESS_KEY_ID': aws_conn.login,
+            'AWS_SECRET_ACCESS_KEY': aws_conn.password,
+        },
+        api_version='auto',
+        docker_conn_id="docker_registry",
+        on_success_callback=lambda context: slack_notify(context, "SUCCESS"),
+        on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
+    )
+
+    # Define task dependencies: players -> transform -> loader
+    run_players_script >> run_transform_script >> run_loader_script
