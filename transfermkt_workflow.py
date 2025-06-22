@@ -10,7 +10,7 @@ aws_conn = BaseHook.get_connection('aws_default')
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'retries': 1,
+    'retries': 2,  # Increased retries since we have smart recovery
 }
 
 def slack_notify(context, status):
@@ -48,26 +48,28 @@ def slack_notify(context, status):
     
     SlackWebhookOperator(
         task_id=f"slack_notify_{status.lower()}",
-        http_conn_id="slack_webhook",  # Ensure this matches your Slack Webhook connection ID
+        http_conn_id="slack_webhook",
         message=slack_msg,
-        channel="#general",  # Update with your Slack channel if needed
+        channel="#general",
         username="Airflow",
     ).execute(context=context)
 
 with DAG(
-    'transfermkt_workflow',
+    'transfermkt_smart_workflow',
     default_args=default_args,
-    description='Run TransferMkt scripts in Docker containers',
+    description='Smart TransferMkt workflow with watermark-based incremental loading',
     schedule_interval='0 14 * * 6',  # Every Saturday at 2:00 PM
     start_date=datetime(2024, 12, 6),
     catchup=False,
+    tags=['transfermkt', 'smart', 'watermark'],
 ) as dag:
 
-    # Task 1: Run transfer_mkt_players.py
-    run_players_script = DockerOperator(
-        task_id='run_players_script',
+    # Task 1: Smart data loading (replaces the old players script)
+    # This will check what's missing and only fetch those data sources
+    smart_data_loading = DockerOperator(
+        task_id='smart_data_loading',
         image='jonasandata/transfermkt_app:latest',
-        command="python /app/transfer_mkt_players.py",
+        command="python /app/smart_transfer_mkt_loader.py {{ ds }}",  # Pass execution date
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
         auto_remove=True,
@@ -83,7 +85,7 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Task 2: Run transfer_mkt_transform.py
+    # Task 2: Data transformation (with fixed transfers processing)
     run_transform_script = DockerOperator(
         task_id='run_transform_script',
         image='jonasandata/transfermkt_app:latest',
@@ -103,7 +105,7 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Task 3: Run transfer_mkt_loader.py
+    # Task 3: Data loading to final destination
     run_loader_script = DockerOperator(
         task_id='run_loader_script',
         image='jonasandata/transfermkt_app:latest',
@@ -123,5 +125,36 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Define task dependencies: players -> transform -> loader
-    run_players_script >> run_transform_script >> run_loader_script
+    # Task 4: Generate completeness report (optional but useful for monitoring)
+    generate_completeness_report = DockerOperator(
+        task_id='generate_completeness_report',
+        image='jonasandata/transfermkt_app:latest',
+        command="""python -c "
+from transfermkt.watermark_utils import WatermarkManager
+from transfermkt.logger import setup_logging
+import sys
+import json
+
+setup_logging()
+wm = WatermarkManager()
+date = sys.argv[1] if len(sys.argv) > 1 else '{{ ds }}'
+report = wm.get_data_completeness_report(date)
+print('=== DATA COMPLETENESS REPORT ===')
+print(json.dumps(report, indent=2, default=str))
+" {{ ds }}""",
+        docker_url='unix://var/run/docker.sock',
+        network_mode='bridge',
+        auto_remove=True,
+        mount_tmp_dir=False,
+        force_pull=True,
+        environment={
+            'AWS_ACCESS_KEY_ID': aws_conn.login,
+            'AWS_SECRET_ACCESS_KEY': aws_conn.password,
+        },
+        api_version='auto',
+        docker_conn_id="docker_registry",
+        trigger_rule='all_done',  # Run regardless of upstream success/failure
+    )
+
+    # Define task dependencies
+    smart_data_loading >> run_transform_script >> run_loader_script >> generate_completeness_report
