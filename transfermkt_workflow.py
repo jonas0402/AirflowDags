@@ -1,3 +1,18 @@
+"""
+TransferMkt Smart Workflow DAG
+
+This Airflow DAG orchestrates a complete ETL pipeline for TransferMkt football data.
+It implements a smart, watermark-based incremental loading system that:
+- Extracts data from TransferMkt using Docker containers
+- Transforms raw data into analytics-ready format
+- Loads data to final destination (e.g., S3, database)
+- Monitors data completeness and quality
+
+Schedule: Every Saturday at 2:00 PM UTC
+Author: Airflow
+Tags: transfermkt, smart, watermark
+"""
+
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
@@ -5,6 +20,7 @@ from datetime import datetime
 from airflow.hooks.base import BaseHook
 
 # Fetch AWS credentials from Airflow connection
+# These credentials are passed to Docker containers as environment variables
 aws_conn = BaseHook.get_connection('aws_default')
 
 default_args = {
@@ -14,7 +30,29 @@ default_args = {
 }
 
 def slack_notify(context, status):
-    """Send Slack notifications for task status with additional details."""
+    """
+    Send detailed Slack notifications for Airflow task status updates.
+
+    This callback function is triggered on task success or failure and sends
+    a formatted message to Slack with execution details, duration, and logs.
+
+    Args:
+        context (dict): Airflow context dictionary containing task instance,
+                       DAG, execution date, and other runtime information.
+        status (str): Task status - either "SUCCESS" or "FAILURE".
+
+    Returns:
+        None: Executes the SlackWebhookOperator to send the notification.
+
+    Notification includes:
+        - DAG and task identification
+        - Execution date and timestamp
+        - Task status (SUCCESS/FAILURE)
+        - Retry attempt number
+        - Execution duration
+        - Link to task logs
+        - Exception details (for failures)
+    """
     ti = context.get("task_instance")
     dag = context.get("dag")
     execution_date = context.get("execution_date")
@@ -58,23 +96,28 @@ with DAG(
     'transfermkt_smart_workflow',
     default_args=default_args,
     description='Smart TransferMkt workflow with watermark-based incremental loading',
-    schedule_interval='0 14 * * 6',  # Every Saturday at 2:00 PM
+    schedule_interval='0 14 * * 6',  # Every Saturday at 2:00 PM UTC
     start_date=datetime(2024, 12, 6),
-    catchup=False,
+    catchup=False,  # Don't backfill historical runs
     tags=['transfermkt', 'smart', 'watermark'],
 ) as dag:
 
-    # Task 1: Smart data loading (replaces the old players script)
-    # This will check what's missing and only fetch those data sources
+    # Task 1: Smart Data Loading
+    # ------------------------------
+    # Implements intelligent, watermark-based incremental data extraction.
+    # - Checks watermark table to identify missing data sources for the execution date
+    # - Only fetches data that hasn't been successfully loaded before
+    # - Prevents redundant API calls and reduces execution time
+    # - Passes execution date ({{ ds }}) to track which data period to load
     smart_data_loading = DockerOperator(
         task_id='smart_data_loading',
         image='jonasandata/transfermkt_app:latest',
-        command="python /app/smart_transfer_mkt_loader.py {{ ds }}",  # Pass execution date
+        command="python /app/smart_transfer_mkt_loader.py {{ ds }}",  # {{ ds }} = YYYY-MM-DD execution date
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
-        auto_remove=True,
+        auto_remove=True,  # Remove container after completion to save disk space
         mount_tmp_dir=False,
-        force_pull=True,
+        force_pull=True,  # Always pull latest image to ensure code is up-to-date
         environment={
             'AWS_ACCESS_KEY_ID': aws_conn.login,
             'AWS_SECRET_ACCESS_KEY': aws_conn.password,
@@ -85,7 +128,14 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Task 2: Data transformation (with fixed transfers processing)
+    # Task 2: Data Transformation
+    # ----------------------------
+    # Transforms raw TransferMkt data into analytics-ready format.
+    # - Cleans and standardizes player, club, and transfer data
+    # - Handles data type conversions and null values
+    # - Applies business logic and data quality rules
+    # - Processes transfer records with enhanced logic for accurate tracking
+    # - Outputs transformed data ready for loading to final destination
     run_transform_script = DockerOperator(
         task_id='run_transform_script',
         image='jonasandata/transfermkt_app:latest',
@@ -105,7 +155,13 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Task 3: Data loading to final destination
+    # Task 3: Data Loading
+    # ---------------------
+    # Loads transformed data to the final destination storage.
+    # - Writes processed data to S3, database, or data warehouse
+    # - Handles upsert logic to prevent duplicates
+    # - Updates watermark table to mark successful data loads
+    # - Ensures data is available for downstream analytics and reporting
     run_loader_script = DockerOperator(
         task_id='run_loader_script',
         image='jonasandata/transfermkt_app:latest',
@@ -125,7 +181,15 @@ with DAG(
         on_failure_callback=lambda context: slack_notify(context, "FAILURE"),
     )
 
-    # Task 4: Generate completeness report (optional but useful for monitoring)
+    # Task 4: Data Completeness Report
+    # ---------------------------------
+    # Generates a comprehensive data quality and completeness report.
+    # - Queries watermark table to check which data sources were loaded
+    # - Identifies any missing or incomplete data for the execution date
+    # - Outputs JSON report with detailed status for each data source
+    # - Useful for monitoring pipeline health and data coverage
+    # - Runs regardless of upstream task status (trigger_rule='all_done')
+    #   to ensure we always get visibility into data state
     generate_completeness_report = DockerOperator(
         task_id='generate_completeness_report',
         image='jonasandata/transfermkt_app:latest',
@@ -153,8 +217,15 @@ print(json.dumps(report, indent=2, default=str))
         },
         api_version='auto',
         docker_conn_id="docker_registry",
-        trigger_rule='all_done',  # Run regardless of upstream success/failure
+        trigger_rule='all_done',  # Run even if upstream tasks fail
     )
 
-    # Define task dependencies
+    # Define task dependencies (linear pipeline flow)
+    # smart_data_loading: Extract raw data from TransferMkt
+    #   ↓
+    # run_transform_script: Transform and clean the data
+    #   ↓
+    # run_loader_script: Load to final destination
+    #   ↓
+    # generate_completeness_report: Monitor data quality
     smart_data_loading >> run_transform_script >> run_loader_script >> generate_completeness_report
